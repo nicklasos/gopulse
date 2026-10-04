@@ -1,0 +1,172 @@
+// Demo application: run it, then open http://localhost:8099/_pulse
+// (login "admin", password "secret"). It generates its own traffic.
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"math/rand/v2"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	pulse "github.com/nicklasos/gopulse"
+	"github.com/nicklasos/gopulse/pulsegin"
+)
+
+func main() {
+	store := pulse.NewMemoryStore()
+	seed(store)
+	p := pulse.New(pulse.Config{
+		App:         "demo",
+		Instance:    "web-1",
+		Username:    "admin",
+		Password:    "secret",
+		Store:       store,
+		SlowRequest: 300 * time.Millisecond,
+	})
+	defer p.Close()
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(pulsegin.Middleware(p))
+	pulsegin.Mount(r, p)
+
+	r.GET("/users", func(c *gin.Context) {
+		time.Sleep(time.Duration(5+rand.IntN(40)) * time.Millisecond)
+		c.JSON(http.StatusOK, gin.H{"users": []string{}})
+	})
+	r.GET("/users/:id", func(c *gin.Context) {
+		time.Sleep(time.Duration(2+rand.IntN(15)) * time.Millisecond)
+		if rand.IntN(10) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"id": c.Param("id")})
+	})
+	r.GET("/reports", func(c *gin.Context) {
+		time.Sleep(time.Duration(100+rand.IntN(500)) * time.Millisecond)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	r.POST("/orders", func(c *gin.Context) {
+		time.Sleep(time.Duration(20+rand.IntN(60)) * time.Millisecond)
+		p.Record("orders.amount", "created", float64(10+rand.IntN(90)))
+		if rand.IntN(15) == 0 {
+			_ = c.Error(errors.New("payment gateway timeout"))
+			c.JSON(http.StatusBadGateway, gin.H{"error": "gateway"})
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{"ok": true})
+	})
+	r.GET("/panic", func(c *gin.Context) {
+		var m map[string]int
+		m["boom"] = 1
+	})
+
+	go traffic("http://localhost:8099")
+	log.Println("demo listening on http://localhost:8099 — dashboard at /_pulse (admin / secret)")
+	log.Fatal(r.Run(":8099"))
+}
+
+func traffic(base string) {
+	time.Sleep(500 * time.Millisecond)
+	client := &http.Client{Timeout: 5 * time.Second}
+	hit := func(method, path string) {
+		req, _ := http.NewRequest(method, base+path, nil)
+		if res, err := client.Do(req); err == nil {
+			res.Body.Close()
+		}
+	}
+	for {
+		switch n := rand.IntN(100); {
+		case n < 45:
+			go hit("GET", "/users")
+		case n < 75:
+			go hit("GET", "/users/42")
+		case n < 85:
+			go hit("GET", "/reports")
+		case n < 97:
+			go hit("POST", "/orders")
+		case n < 99:
+			go hit("GET", "/nope")
+		default:
+			go hit("GET", "/panic")
+		}
+		time.Sleep(time.Duration(20+rand.IntN(120)) * time.Millisecond)
+	}
+}
+
+// seed backfills an hour of synthetic history so the charts are not empty on
+// first load.
+func seed(store pulse.Store) {
+	routes := []struct {
+		key    string
+		perMin float64
+		ms     float64
+	}{
+		{"GET /users", 330, 25},
+		{"GET /users/:id", 220, 9},
+		{"GET /reports", 75, 340},
+		{"POST /orders", 90, 55},
+	}
+	merged := map[pulse.AggKey]*pulse.Agg{}
+	add := func(metric, key string, t time.Time, a pulse.Agg) {
+		for _, res := range pulse.Resolutions {
+			k := pulse.AggKey{Metric: metric, Key: key, Res: res.Name, Start: res.Floor(t).Unix()}
+			if merged[k] == nil {
+				merged[k] = &pulse.Agg{}
+			}
+			merged[k].Merge(a)
+		}
+	}
+	bucketOf := func(ms float64) int {
+		for i, b := range pulse.HistBounds {
+			if ms <= b {
+				return i
+			}
+		}
+		return len(pulse.HistBounds)
+	}
+
+	now := time.Now()
+	for t := now.Add(-time.Hour); t.Before(now.Add(-10 * time.Second)); t = t.Add(10 * time.Second) {
+		wave := 1 + 0.35*float64(t.Unix()%900)/900
+		for _, r := range routes {
+			a := pulse.Agg{Hist: make([]int64, len(pulse.HistBounds)+1)}
+			for range int(r.perMin / 6 * wave * (0.8 + 0.4*rand.Float64())) {
+				ms := r.ms * (0.4 + 1.2*rand.Float64())
+				if rand.IntN(25) == 0 {
+					ms *= 3
+				}
+				a.Count++
+				a.Sum += ms
+				a.Hist[bucketOf(ms)]++
+			}
+			add(pulse.MetricHTTP, r.key, t, a)
+		}
+		if rand.IntN(4) == 0 {
+			add(pulse.MetricHTTP4xx, "GET /users/:id", t, pulse.Agg{Count: 2, Sum: 2})
+		}
+		if rand.IntN(12) == 0 {
+			add(pulse.MetricHTTP5xx, "POST /orders", t, pulse.Agg{Count: 1, Sum: 1})
+		}
+		gauges := map[string]float64{
+			pulse.MetricHostCPU:        18 + 14*rand.Float64()*wave,
+			pulse.MetricHostMem:        61 + 3*rand.Float64(),
+			pulse.MetricHostLoad:       1.2 + 0.8*rand.Float64()*wave,
+			pulse.MetricHostGoroutines: float64(24 + rand.IntN(14)),
+		}
+		for metric, v := range gauges {
+			add(metric, "web-1", t, pulse.Agg{Count: 1, Sum: v})
+		}
+	}
+
+	deltas := make([]pulse.AggDelta, 0, len(merged))
+	for k, a := range merged {
+		deltas = append(deltas, pulse.AggDelta{AggKey: k, Agg: *a})
+	}
+	_ = store.AddAggregates(context.Background(), deltas)
+}

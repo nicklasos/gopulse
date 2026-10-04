@@ -1,0 +1,34 @@
+{{define "stats"}}<div class="stats">
+{{range .}}<div class="stat">
+  <div class="label">{{.Label}}</div>
+  <div class="value">{{if .Tone}}<i class="dot {{.Tone}}" aria-hidden="true"></i>{{end}}{{.Value}}</div>
+  {{if .Meter}}<div class="meter {{meterClass .Meter}}"><i style="width:{{meterValue .Meter}}%"></i></div>{{end}}
+  {{if .Hint}}<div class="hint">{{.Hint}}</div>{{end}}
+</div>{{end}}
+</div>{{end}}
+
+{{define "table"}}{{if .Rows}}<div class="table-wrap"><table>
+<thead><tr>{{range .Columns}}<th{{if .Right}} class="r"{{end}}>{{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</th>{{end}}</tr></thead>
+<tbody>
+{{range .Rows}}<tr>{{range .}}<td class="{{if .Right}}r{{end}}{{if .Mono}} mono{{end}}"{{if .Title}} title="{{.Title}}"{{end}}>{{if .Tone}}<i class="dot {{.Tone}}" aria-hidden="true"></i>{{end}}{{if .Href}}<a href="{{.Href}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}{{if .Meter}}<div class="meter {{meterClass .Meter}}"><i style="width:{{meterValue .Meter}}%"></i></div>{{end}}</td>{{end}}</tr>
+{{end}}</tbody>
+</table></div>{{else}}<p class="empty">{{.Empty}}</p>{{end}}{{end}}
+
+{{define "keyvalue"}}<dl class="kv">{{range .}}<div><dt>{{.Key}}</dt><dd>{{.Value}}</dd></div>{{end}}</dl>{{end}}
+
+{{define "pre"}}<pre class="pre">{{.}}</pre>{{end}}
+
+{{define "chart"}}{{if .Empty}}<p class="empty">No data in this period.</p>{{else}}<div class="chart">
+  {{if .Legend}}<div class="legend">{{range .Legend}}<span><i class="sw s{{.Slot}}" aria-hidden="true"></i>{{.Name}}</span>{{end}}</div>{{end}}
+  <div class="chart-body">
+    <div class="yaxis" aria-hidden="true">{{range .YTicks}}<span>{{.}}</span>{{end}}</div>
+    <div class="plot" data-hover="{{.Hover}}">
+      <div class="gridlines" aria-hidden="true"><i></i><i></i><i></i></div>
+      {{if .Bars}}<div class="bars">{{range .Bars}}<i style="height:{{.Height}}%"></i>{{end}}</div>{{end}}
+      {{if .Lines}}<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        {{range .Lines}}{{$slot := .Slot}}{{range .Areas}}<polygon class="area s{{$slot}}" points="{{.}}"/>{{end}}{{range .Segments}}<polyline class="line s{{$slot}}" points="{{.}}"/>{{end}}{{end}}
+      </svg>{{end}}
+    </div>
+  </div>
+  <div class="xaxis" aria-hidden="true">{{range .XTicks}}<span>{{.}}</span>{{end}}</div>
+</div>{{end}}{{end}}

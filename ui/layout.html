@@ -1,0 +1,34 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}} · {{.App}} · gopulse</title>
+<link rel="stylesheet" href="{{.Base}}/_assets/app.css?v={{.AssetVersion}}">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo" aria-hidden="true"></span><strong>gopulse</strong><span class="app">{{.App}}</span></div>
+  <nav class="tabs" aria-label="Pages" data-testid="pulse-nav">
+    {{range .Pages}}<a href="{{.URL}}"{{if .Active}} class="active" aria-current="page"{{end}}>{{.Title}}</a>{{end}}
+  </nav>
+  <div class="periods" role="group" aria-label="Time range" data-testid="pulse-periods">
+    {{range .Periods}}<a href="{{.URL}}"{{if .Active}} class="active" aria-current="true"{{end}}>{{.Title}}</a>{{end}}
+  </div>
+</header>
+<main id="cards" data-testid="pulse-cards">{{template "cards" .}}</main>
+<script src="{{.Base}}/_assets/app.js?v={{.AssetVersion}}" defer></script>
+</body>
+</html>{{end}}
+
+{{define "cards"}}
+{{if .StoreError}}<div class="notice bad" role="alert" data-testid="pulse-store-error"><strong>Store unavailable.</strong> New data is not being saved: {{.StoreError}}</div>{{end}}
+{{if .Dropped}}<div class="notice warn" data-testid="pulse-dropped"><strong>{{.Dropped}} events dropped</strong> since start because the recorder queue was full.</div>{{end}}
+<div class="grid">
+{{range .Cards}}<section class="card {{.Class}}">
+  {{if .Title}}<h2>{{.Title}}</h2>{{end}}
+  {{if .Error}}<p class="empty bad">Could not load: {{.Error}}</p>{{else}}{{.Body}}{{end}}
+</section>
+{{end}}</div>
+{{end}}
