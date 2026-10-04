@@ -7,7 +7,8 @@
 
 A monitoring dashboard that lives inside your Go web service, in the spirit of
 Laravel Pulse. Add one middleware and get a password-protected page showing
-request rates, response times per route, errors, panics and server capacity.
+request rates, response times per route, SQL query statistics, recent logs,
+errors, panics and server capacity.
 No agent, no separate service, no JavaScript build.
 
 ![Overview page](docs/screenshots/overview.jpg)
@@ -25,9 +26,13 @@ No agent, no separate service, no JavaScript build.
 - **Safe on the hot path** — events go through a bounded queue and are aggregated in the background. If the queue is full, events are dropped and counted; requests never wait.
 - **Light and dark** — follows the browser setting.
 
-| Routes | Server (dark) |
+| SQL queries | Logs |
 |---|---|
-| ![Routes page](docs/screenshots/routes.jpg) | ![Server page](docs/screenshots/server-dark.jpg) |
+| ![Queries page](docs/screenshots/queries.jpg) | ![Logs page](docs/screenshots/logs.jpg) |
+
+| Your own page | Server (dark mode) |
+|---|---|
+| ![Custom page](docs/screenshots/custom-page.jpg) | ![Server page](docs/screenshots/server-dark.jpg) |
 
 ## Status
 
@@ -107,7 +112,8 @@ go run github.com/nicklasos/gopulse/examples/gin@latest
 ```
 
 Then open `http://localhost:8099/_pulse` (login `admin`, password `secret`).
-The demo generates its own traffic, errors and panics.
+The demo generates its own traffic, queries, logs, errors and panics, and has a
+custom "Business" page; its source is in [examples/gin](examples/gin/main.go).
 
 ## SQL queries (pgx v5)
 

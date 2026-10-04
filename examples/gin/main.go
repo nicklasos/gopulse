@@ -27,9 +27,44 @@ func main() {
 		Username:    "admin",
 		Password:    "secret",
 		Store:       store,
-		SlowRequest: 300 * time.Millisecond,
+		SlowRequest: 200 * time.Millisecond,
 	})
 	defer p.Close()
+
+	p.AddPage("Business",
+		pulse.Card{Title: "Orders", Render: func(ctx context.Context, v pulse.View) (pulse.Widget, error) {
+			orders, err := p.Total(ctx, "orders.amount", v.From, v.To)
+			if err != nil {
+				return nil, err
+			}
+			return pulse.Stats{
+				{Label: "Orders", Value: pulse.FormatCount(float64(orders.Count)), Hint: "last " + v.Period},
+				{Label: "Revenue", Value: "$" + pulse.FormatCount(orders.Sum)},
+				{Label: "Average order", Value: "$" + pulse.FormatCount(orders.Avg())},
+			}, nil
+		}},
+		pulse.Card{Title: "Revenue per interval", Width: pulse.Half, Render: func(ctx context.Context, v pulse.View) (pulse.Widget, error) {
+			series, err := p.Series(ctx, "orders.amount", "created", v.From, v.To, 60)
+			if err != nil {
+				return nil, err
+			}
+			line := pulse.Line{Name: "Revenue"}
+			for _, pt := range series.Points {
+				line.Points = append(line.Points, pulse.Point{T: pt.Time, V: pt.Sum})
+			}
+			return pulse.TimeSeries{Lines: []pulse.Line{line}, Unit: "USD", Bars: true}, nil
+		}},
+		pulse.Card{Title: "Queues", Width: pulse.Half, Render: func(context.Context, pulse.View) (pulse.Widget, error) {
+			return pulse.Table{
+				Columns: []string{"Queue", "Waiting", "Capacity used"},
+				Rows: [][]any{
+					{"emails", pulse.Num("12"), pulse.Cell{Text: "24%", Meter: pulse.Percent(24)}},
+					{"exports", pulse.Num("3"), pulse.Cell{Text: "81%", Meter: pulse.Percent(81)}},
+					{"webhooks", pulse.Num("0"), pulse.Cell{Text: "2%", Meter: pulse.Percent(2)}},
+				},
+			}, nil
+		}},
+	)
 
 	logger := slog.New(p.SlogHandler(slog.NewTextHandler(io.Discard, nil)))
 	// query stands in for a database call; a real application attaches
@@ -171,6 +206,9 @@ func seed(store pulse.Store) {
 				a.Hist[bucketOf(v)]++
 			}
 			add(pulse.MetricQuery, name, t, a)
+		}
+		for range int(14 * wave) {
+			add("orders.amount", "created", t, pulse.Agg{Count: 1, Sum: float64(10 + rand.IntN(90))})
 		}
 		if rand.IntN(4) == 0 {
 			add(pulse.MetricHTTP4xx, "GET /users/:id", t, pulse.Agg{Count: 2, Sum: 2})
