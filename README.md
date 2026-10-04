@@ -37,7 +37,7 @@ Early. The API may still change before `v1.0.0`.
 | Requests, errors, panics, host statistics | Available |
 | Custom pages and metrics | Available |
 | In-memory store | Available |
-| Redis store (history across restarts, several instances) | Planned |
+| Redis store (history across restarts, several instances) | Available |
 | Slow SQL queries (pgx) and recent logs (`slog`) | Planned |
 
 ## Install
@@ -105,6 +105,31 @@ go run github.com/nicklasos/gopulse/examples/gin@latest
 
 Then open `http://localhost:8099/_pulse` (login `admin`, password `secret`).
 The demo generates its own traffic, errors and panics.
+
+## Storing data in Redis
+
+The default store keeps everything in process memory: history is lost on
+restart and each instance has its own view. With the Redis store, history
+survives deploys and every instance of a service writes to, and reads from, one
+shared dashboard.
+
+```go
+import "github.com/nicklasos/gopulse/pulseredis"
+
+rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"}) // github.com/redis/go-redis/v9
+
+p := pulse.New(pulse.Config{
+	App:   "my-api",
+	Store: pulseredis.New(rdb, "my-api"),
+	// ...
+})
+```
+
+- Keys live under `gopulse:<app>:`. Give each service its own app name when they share a Redis.
+- Every key has a TTL or a length cap, so the data cleans itself up: 10-second buckets after an hour, 1-minute buckets after a day, 1-hour buckets and errors after a week.
+- Writes happen in one pipeline per flush, not per request.
+- If Redis is unreachable, data for that interval is dropped, your service keeps working, and the dashboard shows a warning.
+- If your Redis evicts keys under memory pressure, monitoring history can be evicted too.
 
 ## Configuration
 
