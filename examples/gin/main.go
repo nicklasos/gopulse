@@ -5,7 +5,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"time"
@@ -29,6 +31,15 @@ func main() {
 	})
 	defer p.Close()
 
+	logger := slog.New(p.SlogHandler(slog.NewTextHandler(io.Discard, nil)))
+	// query stands in for a database call; a real application attaches
+	// pulsepgx.New(p) to its pgx pool instead.
+	query := func(c *gin.Context, sql string, base int) {
+		d := time.Duration(base+rand.IntN(base)) * time.Millisecond
+		time.Sleep(d)
+		p.RecordQuery(c.Request.Context(), sql, d, nil)
+	}
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -36,25 +47,29 @@ func main() {
 	pulsegin.Mount(r, p)
 
 	r.GET("/users", func(c *gin.Context) {
-		time.Sleep(time.Duration(5+rand.IntN(40)) * time.Millisecond)
+		query(c, "-- name: ListUsers :many\nSELECT id, name FROM users ORDER BY id LIMIT $1", 12)
 		c.JSON(http.StatusOK, gin.H{"users": []string{}})
 	})
 	r.GET("/users/:id", func(c *gin.Context) {
-		time.Sleep(time.Duration(2+rand.IntN(15)) * time.Millisecond)
+		query(c, "-- name: GetUser :one\nSELECT id, name FROM users WHERE id = $1", 3)
 		if rand.IntN(10) == 0 {
+			logger.WarnContext(c.Request.Context(), "user not found", "id", c.Param("id"))
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"id": c.Param("id")})
 	})
 	r.GET("/reports", func(c *gin.Context) {
-		time.Sleep(time.Duration(100+rand.IntN(500)) * time.Millisecond)
+		query(c, "-- name: ListOrders :many\nSELECT * FROM orders WHERE created_at > $1", 20)
+		query(c, "SELECT date_trunc('day', created_at) AS day, sum(total) FROM orders WHERE created_at > $1 GROUP BY 1", 120)
+		logger.InfoContext(c.Request.Context(), "report built", "rows", 100+rand.IntN(900))
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 	r.POST("/orders", func(c *gin.Context) {
-		time.Sleep(time.Duration(20+rand.IntN(60)) * time.Millisecond)
+		query(c, "-- name: CreateOrder :one\nINSERT INTO orders (user_id, total) VALUES ($1, $2) RETURNING id", 15)
 		p.Record("orders.amount", "created", float64(10+rand.IntN(90)))
 		if rand.IntN(15) == 0 {
+			logger.ErrorContext(c.Request.Context(), "payment failed", "gateway", "acme", "attempt", 3)
 			_ = c.Error(errors.New("payment gateway timeout"))
 			c.JSON(http.StatusBadGateway, gin.H{"error": "gateway"})
 			return
@@ -146,6 +161,16 @@ func seed(store pulse.Store) {
 				a.Hist[bucketOf(ms)]++
 			}
 			add(pulse.MetricHTTP, r.key, t, a)
+		}
+		for name, ms := range map[string]float64{"ListUsers": 18, "GetUser": 4.5, "ListOrders": 30, "CreateOrder": 22} {
+			a := pulse.Agg{Hist: make([]int64, len(pulse.HistBounds)+1)}
+			for range int(20 * wave) {
+				v := ms * (0.5 + rand.Float64())
+				a.Count++
+				a.Sum += v
+				a.Hist[bucketOf(v)]++
+			}
+			add(pulse.MetricQuery, name, t, a)
 		}
 		if rand.IntN(4) == 0 {
 			add(pulse.MetricHTTP4xx, "GET /users/:id", t, pulse.Agg{Count: 2, Sum: 2})

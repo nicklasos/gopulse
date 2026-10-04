@@ -43,6 +43,10 @@ type Pulse struct {
 	started time.Time
 	tmpl    *template.Template
 
+	// queryKeys bounds how many distinct statements get their own aggregate.
+	// It is only touched by the recorder goroutine.
+	queryKeys map[string]struct{}
+
 	mu    sync.RWMutex
 	pages []*Page
 }
@@ -51,13 +55,14 @@ type Pulse struct {
 func New(cfg Config) *Pulse {
 	cfg = cfg.withDefaults()
 	p := &Pulse{
-		cfg:      cfg,
-		store:    cfg.Store,
-		events:   make(chan any, cfg.BufferSize),
-		flushReq: make(chan chan struct{}),
-		done:     make(chan struct{}),
-		started:  time.Now(),
-		tmpl:     parseTemplates(),
+		cfg:       cfg,
+		store:     cfg.Store,
+		events:    make(chan any, cfg.BufferSize),
+		flushReq:  make(chan chan struct{}),
+		done:      make(chan struct{}),
+		started:   time.Now(),
+		tmpl:      parseTemplates(),
+		queryKeys: map[string]struct{}{},
 	}
 	p.storeErr.Store("")
 	p.registerBuiltinPages()

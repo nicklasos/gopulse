@@ -17,6 +17,8 @@ No agent, no separate service, no JavaScript build.
 - **Requests** — count, throughput, average, P95 and P99 per route template (`/users/:id`, not `/users/42`), with 4xx and 5xx counts.
 - **Slow requests** — individual requests above a threshold you choose.
 - **Errors and panics** — grouped by fingerprint, with count, first and last sighting, and the stack for panics.
+- **Queries** — count, average, P95 and total time per SQL statement, plus a list of slow and failed queries linked to the request that ran them.
+- **Logs** — the most recent `slog` records, filterable by level and linked to their request.
 - **Server** — CPU, memory, load, disk capacity per mount, goroutines and heap, per instance.
 - **Custom pages** — add your own tabs built from stats, tables, charts and key-value lists, or raw HTML.
 - **Custom metrics** — one call to record a business number; chart it on your own page.
@@ -38,7 +40,8 @@ Early. The API may still change before `v1.0.0`.
 | Custom pages and metrics | Available |
 | In-memory store | Available |
 | Redis store (history across restarts, several instances) | Available |
-| Slow SQL queries (pgx) and recent logs (`slog`) | Planned |
+| SQL query statistics and slow queries (pgx v5) | Available |
+| Recent logs (`log/slog`) | Available |
 
 ## Install
 
@@ -106,6 +109,41 @@ go run github.com/nicklasos/gopulse/examples/gin@latest
 Then open `http://localhost:8099/_pulse` (login `admin`, password `secret`).
 The demo generates its own traffic, errors and panics.
 
+## SQL queries (pgx v5)
+
+Attach the tracer to your pool config:
+
+```go
+import "github.com/nicklasos/gopulse/pulsepgx"
+
+cfg, _ := pgxpool.ParseConfig(databaseURL)
+cfg.ConnConfig.Tracer = pulsepgx.New(p) // or pulsepgx.Wrap(p, existingTracer)
+pool, _ := pgxpool.NewWithConfig(ctx, cfg)
+```
+
+Every statement is timed. Statements are grouped by their [sqlc](https://sqlc.dev)
+query name when the text has one (`-- name: GetUser :one`), otherwise by the
+statement with literals replaced by `?`. Queries slower than `SlowQuery`
+(default 100 ms) and queries that fail are also listed individually, with the
+route that ran them. Pass the request context to your queries so they can be
+attributed.
+
+Only the statement text is stored. Query arguments are never recorded.
+
+Other drivers can report through `p.RecordQuery(ctx, sql, duration, err)`.
+
+## Logs (log/slog)
+
+```go
+handler := slog.NewJSONHandler(os.Stdout, nil)
+logger := slog.New(p.SlogHandler(handler))
+```
+
+Records at or above `LogLevel` (default Info) are kept for the Logs page, up
+to `MaxLogs`. Every record still reaches your own handler unchanged. Records
+logged with a request context (`logger.InfoContext(ctx, ...)`) are linked to
+that request.
+
 ## Storing data in Redis
 
 The default store keeps everything in process memory: history is lost on
@@ -141,6 +179,9 @@ p := pulse.New(pulse.Config{
 | `Authorize` | none | `func(*http.Request) bool` that replaces basic auth, for example to reuse your own session. |
 | `Store` | in-memory | Where data is kept. |
 | `SlowRequest` | `500ms` | Requests slower than this are listed individually. |
+| `SlowQuery` | `100ms` | Queries slower than this are listed individually. |
+| `LogLevel` | `Info` | Lowest `slog` level kept for the Logs page. |
+| `MaxLogs` | `1000` | Number of log records kept. |
 | `FlushInterval` | `5s` | How often buffered data is written to the store. |
 | `HostInterval` | `15s` | How often host statistics are sampled. A negative value turns sampling off. |
 | `DiskPaths` | `["/"]` | Mount points shown on the Server page. |
@@ -221,6 +262,8 @@ Percentiles are estimates from histogram buckets, not exact values.
 ## Privacy
 
 - Only the URL path is stored for slow requests and errors. Query strings, headers, cookies and bodies are never recorded.
+- SQL is stored as statement text only; arguments are never recorded. A statement with values written inline is stored as written when it is slow or fails.
+- Captured log records include their attributes, exactly as your application logged them.
 - Requests that match no route are grouped under `(unmatched)`, so scanners cannot fill memory with random paths.
 - The dashboard's own requests are not recorded.
 - Error messages are stored as your code produced them. Do not put secrets in error text.

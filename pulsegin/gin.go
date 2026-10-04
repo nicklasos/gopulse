@@ -2,6 +2,8 @@
 package pulsegin
 
 import (
+	"context"
+	"errors"
 	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
@@ -41,7 +43,12 @@ func Middleware(p *pulse.Pulse) gin.HandlerFunc {
 		for _, e := range c.Errors {
 			errs = append(errs, e.Err)
 		}
-		span.End(pulse.Result{Path: c.Request.URL.Path, Status: c.Writer.Status(), Errors: errs})
+		span.End(pulse.Result{
+			Path:       c.Request.URL.Path,
+			Status:     c.Writer.Status(),
+			Errors:     errs,
+			ClientGone: errors.Is(ctx.Err(), context.Canceled),
+		})
 	}
 }
 

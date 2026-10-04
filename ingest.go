@@ -30,17 +30,21 @@ type SlowRequest struct {
 	Path       string    `json:"path"`
 	Status     int       `json:"status"`
 	DurationMS float64   `json:"duration_ms"`
+	Queries    int       `json:"queries,omitempty"`
+	QueryMS    float64   `json:"query_ms,omitempty"`
 	Time       time.Time `json:"time"`
 }
 
 type requestEvent struct {
-	t      time.Time
-	id     string
-	method string
-	route  string
-	path   string
-	status int
-	dur    time.Duration
+	queries int
+	queryMS float64
+	t       time.Time
+	id      string
+	method  string
+	route   string
+	path    string
+	status  int
+	dur     time.Duration
 }
 
 type errorEvent struct{ ErrorSample }
@@ -166,7 +170,27 @@ func (p *Pulse) apply(b *pending, e any) {
 		if ev.dur >= p.cfg.SlowRequest {
 			b.entry(ListSlowRequests, ev.t, SlowRequest{
 				ID: ev.id, Method: ev.method, Route: ev.route, Path: ev.path,
-				Status: ev.status, DurationMS: ms, Time: ev.t,
+				Status: ev.status, DurationMS: ms, Queries: ev.queries, QueryMS: ev.queryMS, Time: ev.t,
+			})
+		}
+	case queryEvent:
+		ms := float64(ev.dur) / float64(time.Millisecond)
+		name := ev.name
+		if _, known := p.queryKeys[name]; !known {
+			if len(p.queryKeys) >= maxQueryKeys {
+				name = otherQueries
+			} else {
+				p.queryKeys[name] = struct{}{}
+			}
+		}
+		b.add(MetricQuery, name, ev.t, ms, histIndex(ms))
+		if ev.err != "" {
+			b.add(MetricQueryErrors, name, ev.t, 1, -1)
+		}
+		if ev.sql != "" {
+			b.entry(ListSlowQueries, ev.t, SlowQuery{
+				Name: ev.name, SQL: ev.sql, DurationMS: ms, Error: ev.err,
+				RequestID: ev.id, Method: ev.meth, Route: ev.route, Time: ev.t,
 			})
 		}
 	case errorEvent:
@@ -214,7 +238,11 @@ func (p *Pulse) write(b *pending) {
 		keep(p.store.AddAggregates(ctx, deltas))
 	}
 	for list, entries := range b.entries {
-		keep(p.store.AppendEntries(ctx, list, entries, p.cfg.MaxEntries))
+		limit := p.cfg.MaxEntries
+		if list == ListLogs {
+			limit = p.cfg.MaxLogs
+		}
+		keep(p.store.AppendEntries(ctx, list, entries, limit))
 	}
 	if len(b.errors) > 0 {
 		keep(p.store.RecordErrors(ctx, b.errors, p.cfg.MaxEntries))

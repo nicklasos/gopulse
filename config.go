@@ -44,10 +44,13 @@ type Config struct {
 	// BufferSize is the capacity of the event queue. Events are dropped when it is full.
 	BufferSize int
 
-	// MaxEntries caps each stored list (slow requests, slow queries, logs, errors).
+	// MaxEntries caps each stored list (slow requests, slow queries, error groups).
 	MaxEntries int
 
-	// LogLevel is the minimum level captured by SlogHandler.
+	// MaxLogs caps the number of log records kept. Default 1000.
+	MaxLogs int
+
+	// LogLevel is the minimum level captured by SlogHandler. Default Info.
 	LogLevel slog.Level
 
 	// Instance identifies this process on the Server page. Default is the hostname.
@@ -85,6 +88,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxEntries == 0 {
 		c.MaxEntries = 200
+	}
+	if c.MaxLogs == 0 {
+		c.MaxLogs = 1000
 	}
 	if c.Instance == "" {
 		c.Instance, _ = os.Hostname()

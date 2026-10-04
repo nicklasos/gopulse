@@ -18,10 +18,12 @@ type Span struct {
 	Method string
 	Route  string
 
-	p        *Pulse
-	start    time.Time
-	ended    atomic.Bool
-	panicked bool
+	p          *Pulse
+	start      time.Time
+	ended      atomic.Bool
+	panicked   bool
+	queries    atomic.Int64
+	queryNanos atomic.Int64
 }
 
 // Result describes how a request finished.
@@ -31,7 +33,13 @@ type Result struct {
 	Path   string
 	Status int
 	Errors []error
+	// ClientGone marks a request whose client disconnected before the
+	// response. A 5xx caused by that is recorded as 499, not as a server error.
+	ClientGone bool
 }
+
+// StatusClientClosed is recorded for requests abandoned by the client.
+const StatusClientClosed = 499
 
 // Start begins tracking a request. The returned context carries the span so
 // queries, logs and reported errors can be attributed to the request.
@@ -80,14 +88,19 @@ func (s *Span) End(r Result) {
 	if r.Route != "" {
 		s.Route = r.Route
 	}
+	if r.ClientGone && r.Status >= 500 && !s.panicked {
+		r.Status, r.Errors = StatusClientClosed, nil
+	}
 	s.p.emit(requestEvent{
-		t:      now,
-		id:     s.ID,
-		method: s.Method,
-		route:  s.Route,
-		path:   r.Path,
-		status: r.Status,
-		dur:    now.Sub(s.start),
+		t:       now,
+		id:      s.ID,
+		method:  s.Method,
+		route:   s.Route,
+		path:    r.Path,
+		status:  r.Status,
+		dur:     now.Sub(s.start),
+		queries: int(s.queries.Load()),
+		queryMS: float64(s.queryNanos.Load()) / float64(time.Millisecond),
 	})
 
 	sample := ErrorSample{

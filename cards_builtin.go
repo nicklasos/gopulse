@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,21 @@ func (p *Pulse) registerBuiltinPages() {
 		{Title: "Requests per minute", Width: Half, Render: p.routeCard(p.cardRequestRate)},
 		{Title: "Response time", Width: Half, Render: p.routeCard(p.cardResponseTime)},
 		{Title: "Slow requests", Render: p.routeCard(p.cardSlowRequests)},
+	}})
+	p.addPage(&Page{Title: "Request", Slug: "request", Hidden: true, Parent: "routes", Cards: []Card{
+		{Render: p.cardRequestDetail},
+		{Title: "Slow or failed queries in this request", Render: p.cardRequestQueries},
+		{Title: "Logs from this request", Render: p.cardRequestLogs},
+	}})
+	p.addPage(&Page{Title: "Queries", Slug: "queries", Cards: []Card{
+		{Render: p.cardQueryStats},
+		{Title: "Queries per minute", Width: Half, Render: p.cardQueryRate},
+		{Title: "Query time", Width: Half, Render: p.cardQueryTime},
+		{Title: "Statements", Render: p.cardQueries},
+		{Title: "Slow and failed queries", Render: p.cardSlowQueries("")},
+	}})
+	p.addPage(&Page{Title: "Logs", Slug: "logs", Cards: []Card{
+		{Title: "Recent logs", Render: p.cardLogs("")},
 	}})
 	p.addPage(&Page{Title: "Errors", Slug: "errors", Cards: []Card{
 		{Title: "Errors", Render: p.cardErrors(0)},
@@ -280,7 +296,7 @@ func (p *Pulse) cardSlowRequests(route string) cardFunc {
 			return nil, err
 		}
 		table := Table{
-			Columns: []string{"When", "Route", "Path", "Status", "Duration"},
+			Columns: []string{"When", "Route", "Path", "Status", "Queries", "Query time", "Duration"},
 			Empty:   fmt.Sprintf("No requests slower than %s.", FormatMS(float64(p.cfg.SlowRequest.Milliseconds()))),
 		}
 		for _, r := range reqs {
@@ -291,11 +307,15 @@ func (p *Pulse) cardSlowRequests(route string) cardFunc {
 			if len(table.Rows) == 50 {
 				break
 			}
+			when := timeCell(r.Time)
+			when.Href = v.PageURL("request", "id", r.ID)
 			table.Rows = append(table.Rows, []any{
-				timeCell(r.Time),
+				when,
 				Cell{Text: key, Href: v.PageURL("route", "route", key), Mono: true},
 				Cell{Text: r.Path, Mono: true},
 				statusCell(r.Status),
+				Num(strconv.Itoa(r.Queries)),
+				Num(FormatMS(r.QueryMS)),
 				Num(FormatMS(r.DurationMS)),
 			})
 		}
@@ -492,4 +512,248 @@ func (p *Pulse) cardRecorder(context.Context, View) (Widget, error) {
 		{"Slow query threshold", p.cfg.SlowQuery.String()},
 		{"Entries kept per list", strconv.Itoa(p.cfg.MaxEntries)},
 	}, nil
+}
+
+func (p *Pulse) cardQueryStats(ctx context.Context, v View) (Widget, error) {
+	all, err := p.Total(ctx, MetricQuery, v.From, v.To)
+	if err != nil {
+		return nil, err
+	}
+	failed, err := p.Total(ctx, MetricQueryErrors, v.From, v.To)
+	if err != nil {
+		return nil, err
+	}
+	tone := ToneNone
+	if failed.Count > 0 {
+		tone = ToneBad
+	}
+	return Stats{
+		{Label: "Queries", Value: FormatCount(float64(all.Count)), Hint: "last " + v.Period},
+		{Label: "Average", Value: FormatMS(all.Avg())},
+		{Label: "P95", Value: FormatMS(all.Percentile(0.95))},
+		{Label: "P99", Value: FormatMS(all.Percentile(0.99))},
+		{Label: "Time in database", Value: FormatMS(all.Sum)},
+		{Label: "Failed", Value: FormatCount(float64(failed.Count)), Tone: tone},
+	}, nil
+}
+
+func (p *Pulse) cardQueryRate(ctx context.Context, v View) (Widget, error) {
+	s, err := p.Series(ctx, MetricQuery, "", v.From, v.To, 60)
+	if err != nil {
+		return nil, err
+	}
+	line := Line{Name: "Queries"}
+	for _, pt := range completed(s.Points) {
+		line.Points = append(line.Points, Point{T: pt.Time, V: float64(pt.Count) / s.Step.Minutes()})
+	}
+	return TimeSeries{Lines: []Line{line}, Unit: "/min", Bars: true}, nil
+}
+
+func (p *Pulse) cardQueryTime(ctx context.Context, v View) (Widget, error) {
+	s, err := p.Series(ctx, MetricQuery, "", v.From, v.To, 120)
+	if err != nil {
+		return nil, err
+	}
+	avg, p95 := Line{Name: "Average"}, Line{Name: "P95"}
+	for _, pt := range completed(s.Points) {
+		avg.Points = append(avg.Points, Point{T: pt.Time, V: gauge(pt.Agg, pt.Avg())})
+		p95.Points = append(p95.Points, Point{T: pt.Time, V: gauge(pt.Agg, pt.Percentile(0.95))})
+	}
+	return TimeSeries{Lines: []Line{avg, p95}, Unit: "ms"}, nil
+}
+
+func (p *Pulse) cardQueries(ctx context.Context, v View) (Widget, error) {
+	totals, err := p.Totals(ctx, MetricQuery, v.From, v.To)
+	if err != nil {
+		return nil, err
+	}
+	failed, err := p.Totals(ctx, MetricQueryErrors, v.From, v.To)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(totals))
+	for name := range totals {
+		names = append(names, name)
+	}
+	byCount := v.Param("sort") == "count"
+	byAvg := v.Param("sort") == "avg"
+	sort.Slice(names, func(i, j int) bool {
+		a, b := totals[names[i]], totals[names[j]]
+		switch {
+		case byCount && a.Count != b.Count:
+			return a.Count > b.Count
+		case byAvg && a.Avg() != b.Avg():
+			return a.Avg() > b.Avg()
+		case a.Sum != b.Sum:
+			return a.Sum > b.Sum
+		}
+		return names[i] < names[j]
+	})
+	if len(names) > 100 {
+		names = names[:100]
+	}
+	table := Table{
+		Columns:     []string{"Statement", "Count", "Average", "P95", "P99", "Total time", "Failed"},
+		ColumnHrefs: []string{"", v.PageURL("queries", "sort", "count"), v.PageURL("queries", "sort", "avg"), "", "", v.PageURL("queries", "sort", "time"), ""},
+		Empty:       "No queries recorded. Attach the tracer from the pulsepgx package to your connection pool.",
+	}
+	for _, name := range names {
+		a := totals[name]
+		failCell := Num(FormatCount(float64(failed[name].Count)))
+		if failed[name].Count > 0 {
+			failCell.Tone = ToneBad
+		}
+		table.Rows = append(table.Rows, []any{
+			Cell{Text: name, Mono: true},
+			Num(FormatCount(float64(a.Count))),
+			Num(FormatMS(a.Avg())),
+			Num(FormatMS(a.Percentile(0.95))),
+			Num(FormatMS(a.Percentile(0.99))),
+			Num(FormatMS(a.Sum)),
+			failCell,
+		})
+	}
+	return table, nil
+}
+
+func (p *Pulse) cardSlowQueries(requestID string) cardFunc {
+	return func(ctx context.Context, v View) (Widget, error) {
+		queries, err := p.SlowQueries(ctx, p.cfg.MaxEntries)
+		if err != nil {
+			return nil, err
+		}
+		table := Table{
+			Columns: []string{"When", "Statement", "Route", "Duration", "Error"},
+			Empty:   fmt.Sprintf("No failed queries and none slower than %s.", FormatMS(float64(p.cfg.SlowQuery.Milliseconds()))),
+		}
+		for _, q := range queries {
+			if requestID != "" && q.RequestID != requestID {
+				continue
+			}
+			if len(table.Rows) == 50 {
+				break
+			}
+			when := timeCell(q.Time)
+			route := Cell{Text: "—"}
+			if q.Route != "" {
+				key := routeKey(q.Method, q.Route)
+				route = Cell{Text: key, Href: v.PageURL("route", "route", key), Mono: true}
+			}
+			errCell := Cell{Text: truncate(q.Error, 120)}
+			if q.Error != "" {
+				errCell.Tone = ToneBad
+			}
+			table.Rows = append(table.Rows, []any{
+				when,
+				Cell{Text: truncate(strings.Join(strings.Fields(q.SQL), " "), 300), Title: q.Name, Mono: true},
+				route,
+				Num(FormatMS(q.DurationMS)),
+				errCell,
+			})
+		}
+		return table, nil
+	}
+}
+
+func levelTone(level string) Tone {
+	switch {
+	case strings.HasPrefix(level, "ERROR"):
+		return ToneBad
+	case strings.HasPrefix(level, "WARN"):
+		return ToneWarn
+	}
+	return ToneNone
+}
+
+func (p *Pulse) cardLogs(requestID string) cardFunc {
+	return func(ctx context.Context, v View) (Widget, error) {
+		logs, err := p.Logs(ctx, p.cfg.MaxLogs)
+		if err != nil {
+			return nil, err
+		}
+		level := strings.ToUpper(v.Param("level"))
+		table := Table{
+			Columns:     []string{"When", "Level", "Message", "Attributes", "Route"},
+			ColumnHrefs: []string{"", v.PageURL("logs"), "", "", ""},
+			Empty:       "No log records captured. Wrap your slog handler with SlogHandler.",
+		}
+		if requestID == "" && level != "" {
+			table.Empty = "No " + level + " records among the most recent logs."
+		}
+		for _, l := range logs {
+			if requestID != "" && l.RequestID != requestID {
+				continue
+			}
+			if requestID == "" && level != "" && !strings.HasPrefix(l.Level, level) {
+				continue
+			}
+			if len(table.Rows) == 200 {
+				break
+			}
+			route := Cell{Text: "—"}
+			if l.Route != "" {
+				key := routeKey(l.Method, l.Route)
+				route = Cell{Text: key, Href: v.PageURL("route", "route", key), Mono: true}
+			}
+			table.Rows = append(table.Rows, []any{
+				timeCell(l.Time),
+				Cell{Text: l.Level, Tone: levelTone(l.Level), Href: v.PageURL("logs", "level", l.Level)},
+				truncate(l.Message, 200),
+				Cell{Text: truncate(l.Attrs, 400), Mono: true},
+				route,
+			})
+		}
+		return table, nil
+	}
+}
+
+func (p *Pulse) requestID(v View) (string, error) {
+	id := v.Param("id")
+	if id == "" {
+		return "", fmt.Errorf("no request selected")
+	}
+	return id, nil
+}
+
+func (p *Pulse) cardRequestDetail(ctx context.Context, v View) (Widget, error) {
+	id, err := p.requestID(v)
+	if err != nil {
+		return nil, err
+	}
+	reqs, err := p.SlowRequests(ctx, p.cfg.MaxEntries)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range reqs {
+		if r.ID != id {
+			continue
+		}
+		return KeyValue{
+			{"Route", routeKey(r.Method, r.Route)},
+			{"Path", r.Path},
+			{"Status", strconv.Itoa(r.Status)},
+			{"Duration", FormatMS(r.DurationMS)},
+			{"Queries", strconv.Itoa(r.Queries)},
+			{"Time in database", FormatMS(r.QueryMS)},
+			{"When", r.Time.Format(time.RFC1123)},
+			{"Request ID", r.ID},
+		}, nil
+	}
+	return nil, fmt.Errorf("request not found; it may have been rotated out")
+}
+
+func (p *Pulse) cardRequestQueries(ctx context.Context, v View) (Widget, error) {
+	id, err := p.requestID(v)
+	if err != nil {
+		return nil, err
+	}
+	return p.cardSlowQueries(id)(ctx, v)
+}
+
+func (p *Pulse) cardRequestLogs(ctx context.Context, v View) (Widget, error) {
+	id, err := p.requestID(v)
+	if err != nil {
+		return nil, err
+	}
+	return p.cardLogs(id)(ctx, v)
 }

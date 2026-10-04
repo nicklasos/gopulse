@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -249,7 +250,7 @@ func (p *Pulse) Middleware(next http.Handler) http.Handler {
 			} else if r.Pattern != "" {
 				route = r.Pattern
 			}
-			return Result{Route: route, Path: r.URL.Path, Status: status}
+			return Result{Route: route, Path: r.URL.Path, Status: status, ClientGone: errors.Is(ctx.Err(), context.Canceled)}
 		}
 		defer func() {
 			if v := recover(); v != nil {
