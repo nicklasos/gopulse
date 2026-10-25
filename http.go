@@ -16,14 +16,15 @@ import (
 	"time"
 )
 
-//go:embed ui/*.html ui/app.css ui/app.js
+//go:embed ui/*.html ui/app.css ui/app.js ui/favicon.svg
 var uiFS embed.FS
 
 var (
 	assetCSS, _  = uiFS.ReadFile("ui/app.css")
 	assetJS, _   = uiFS.ReadFile("ui/app.js")
+	assetIcon, _ = uiFS.ReadFile("ui/favicon.svg")
 	assetVersion = func() string {
-		sum := sha256.Sum256(append(append([]byte{}, assetCSS...), assetJS...))
+		sum := sha256.Sum256(append(append(append([]byte{}, assetCSS...), assetJS...), assetIcon...))
 		return hex.EncodeToString(sum[:6])
 	}()
 )
@@ -92,6 +93,9 @@ func (p *Pulse) serveDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	case "_assets/app.js":
 		serveAsset(w, "text/javascript; charset=utf-8", assetJS)
+		return
+	case "_assets/favicon.svg":
+		serveAsset(w, "image/svg+xml", assetIcon)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

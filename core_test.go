@@ -282,6 +282,10 @@ func TestAssetsAndMethods(t *testing.T) {
 	if js.Code != http.StatusOK || !strings.HasPrefix(js.Header().Get("Content-Type"), "text/javascript") || js.Body.Len() == 0 {
 		t.Errorf("script = %d %q", js.Code, js.Header().Get("Content-Type"))
 	}
+	icon := do("GET", "/_pulse/_assets/favicon.svg", true)
+	if icon.Code != http.StatusOK || icon.Header().Get("Content-Type") != "image/svg+xml" || icon.Body.Len() == 0 {
+		t.Errorf("favicon = %d %q", icon.Code, icon.Header().Get("Content-Type"))
+	}
 	if do("GET", "/_pulse/_assets/app.css", false).Code != http.StatusUnauthorized {
 		t.Error("assets must sit behind the login too")
 	}

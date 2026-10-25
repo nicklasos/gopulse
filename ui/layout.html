@@ -5,11 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{{.Title}} · {{.App}} · gopulse</title>
+<link rel="icon" type="image/svg+xml" href="{{.Base}}/_assets/favicon.svg?v={{.AssetVersion}}">
 <link rel="stylesheet" href="{{.Base}}/_assets/app.css?v={{.AssetVersion}}">
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="logo" aria-hidden="true"></span><strong>gopulse</strong><span class="app">{{.App}}</span></div>
+  <div class="brand"><img class="logo" src="{{.Base}}/_assets/favicon.svg?v={{.AssetVersion}}" alt="" width="22" height="22"><strong>gopulse</strong><span class="app">{{.App}}</span></div>
   <nav class="tabs" aria-label="Pages" data-testid="pulse-nav">
     {{range .Pages}}<a href="{{.URL}}"{{if .Active}} class="active" aria-current="page"{{end}}>{{.Title}}</a>{{end}}
   </nav>

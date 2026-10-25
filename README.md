@@ -1,4 +1,4 @@
-# gopulse
+<h1><img src="docs/logo.svg" alt="gopulse" width="320"></h1>
 
 [![test](https://github.com/nicklasos/gopulse/actions/workflows/test.yml/badge.svg)](https://github.com/nicklasos/gopulse/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/nicklasos/gopulse.svg)](https://pkg.go.dev/github.com/nicklasos/gopulse)
