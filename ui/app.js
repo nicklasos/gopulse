@@ -66,12 +66,16 @@
     tip.style.left = Math.max(left, 0) + 'px';
   }
 
-  document.addEventListener('mousemove', function (e) {
+  // Pointer events cover touch too: a tap on a chart shows its tooltip and a
+  // tap anywhere else hides it again, so refresh does not stay paused.
+  function track(e) {
     var plot = e.target.closest ? e.target.closest('.plot[data-hover]') : null;
     if (active && active !== plot) clear(active);
     active = plot;
     if (plot) show(plot, e.clientX);
-  });
+  }
+  document.addEventListener('pointermove', track);
+  document.addEventListener('pointerdown', track);
   document.addEventListener('mouseleave', function () {
     if (active) clear(active);
     active = null;
@@ -87,4 +91,10 @@
       .catch(function () {});
   }
   setInterval(refresh, REFRESH_MS);
+
+  var tabs = document.querySelector('.tabs');
+  var current = tabs && tabs.querySelector('.active');
+  if (current && tabs.scrollWidth > tabs.clientWidth) {
+    tabs.scrollLeft = current.offsetLeft - (tabs.clientWidth - current.offsetWidth) / 2;
+  }
 })();
