@@ -54,7 +54,7 @@ Early. The API may still change before `v1.0.0`.
 go get github.com/nicklasos/gopulse
 ```
 
-Requires Go 1.23 or newer.
+Requires Go 1.27.3 or newer.
 
 ## Quick start with Gin
 

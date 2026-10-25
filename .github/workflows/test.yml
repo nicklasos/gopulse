@@ -13,11 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: ["1.23", "stable"]
+        include:
+          - go-version-file: go.mod
+          - go-version: stable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go }}
+          go-version: ${{ matrix.go-version }}
+          go-version-file: ${{ matrix.go-version-file }}
       - run: go vet ./...
       - run: go test -race ./...
