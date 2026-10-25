@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -41,9 +42,22 @@ type Result struct {
 // StatusClientClosed is recorded for requests abandoned by the client.
 const StatusClientClosed = 499
 
+// OtherMethod is recorded in place of a non-standard HTTP method.
+const OtherMethod = "OTHER"
+
+var knownMethods = map[string]bool{
+	http.MethodGet: true, http.MethodHead: true, http.MethodPost: true, http.MethodPut: true,
+	http.MethodPatch: true, http.MethodDelete: true, http.MethodOptions: true,
+	http.MethodConnect: true, http.MethodTrace: true,
+}
+
 // Start begins tracking a request. The returned context carries the span so
 // queries, logs and reported errors can be attributed to the request.
 func (p *Pulse) Start(ctx context.Context, method, route string) (context.Context, *Span) {
+	// The method comes from the client, so an unknown one must not become its own key.
+	if !knownMethods[method] {
+		method = OtherMethod
+	}
 	s := &Span{
 		ID:     strconv.FormatUint(rand.Uint64(), 36),
 		Method: method,

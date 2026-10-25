@@ -373,3 +373,18 @@ func TestFingerprintStability(t *testing.T) {
 		t.Error("route and kind should separate groups")
 	}
 }
+
+func TestUnknownMethodsShareOneKey(t *testing.T) {
+	p := newTestPulse(t, nil)
+	h := p.Middleware(http.NewServeMux())
+	for _, m := range []string{"XFOO", "XBAR", "PROPFIND", "GET"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(m, "/nope", nil))
+	}
+	p.Flush()
+
+	now := time.Now()
+	totals, _ := p.Totals(context.Background(), MetricHTTP, now.Add(-time.Hour), now)
+	if len(totals) != 2 || totals["OTHER "+Unmatched].Count != 3 || totals["GET "+Unmatched].Count != 1 {
+		t.Fatalf("totals = %v, want 3 under OTHER and 1 under GET", totals)
+	}
+}

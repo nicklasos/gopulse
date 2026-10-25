@@ -270,7 +270,7 @@ Percentiles are estimates from histogram buckets, not exact values.
 - Only the URL path is stored for slow requests and errors. Query strings, headers, cookies and bodies are never recorded.
 - SQL is stored as statement text only; arguments are never recorded. A statement with values written inline is stored as written when it is slow or fails.
 - Captured log records include their attributes, exactly as your application logged them.
-- Requests that match no route are grouped under `(unmatched)`, so scanners cannot fill memory with random paths.
+- Requests that match no route are grouped under `(unmatched)`, so scanners cannot fill memory with random paths. Non-standard HTTP methods are recorded as `OTHER` for the same reason.
 - The dashboard's own requests are not recorded.
 - Error messages are stored as your code produced them. Do not put secrets in error text.
 
