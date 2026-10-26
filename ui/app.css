@@ -157,6 +157,7 @@ tbody tr:last-child td { border-bottom: 0; }
 td a { text-decoration: underline; text-decoration-color: var(--axis); text-underline-offset: 3px; }
 td a:hover { text-decoration-color: var(--ink); }
 th.r, td.r { text-align: right; white-space: nowrap; }
+td.nowrap { white-space: nowrap; }
 th:last-child, td:last-child { padding-right: 0; }
 td.mono, .pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
 td.mono { overflow-wrap: anywhere; min-width: 16ch; }

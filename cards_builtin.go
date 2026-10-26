@@ -286,7 +286,7 @@ func statusCell(status int) Cell {
 }
 
 func timeCell(t time.Time) Cell {
-	return Cell{Text: FormatAgo(t), Title: t.Format(time.RFC3339)}
+	return Cell{Text: FormatAgo(t), Title: t.Format(time.RFC3339), NoWrap: true}
 }
 
 func (p *Pulse) cardSlowRequests(route string) cardFunc {

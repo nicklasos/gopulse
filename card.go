@@ -156,13 +156,14 @@ func (s Stats) render(t *template.Template) (template.HTML, error) {
 
 // Cell is a table cell with optional link, alignment and state.
 type Cell struct {
-	Text  string
-	Href  string
-	Title string
-	Right bool
-	Mono  bool
-	Tone  Tone
-	Meter *float64
+	Text   string
+	Href   string
+	Title  string
+	Right  bool
+	Mono   bool
+	NoWrap bool
+	Tone   Tone
+	Meter  *float64
 }
 
 // Num is a right-aligned cell for numbers.

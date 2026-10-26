@@ -10,7 +10,7 @@
 {{define "table"}}{{if .Rows}}<div class="table-wrap"><table>
 <thead><tr>{{range .Columns}}<th{{if .Right}} class="r"{{end}}>{{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</th>{{end}}</tr></thead>
 <tbody>
-{{range .Rows}}<tr>{{range .}}<td class="{{if .Right}}r{{end}}{{if .Mono}} mono{{end}}"{{if .Title}} title="{{.Title}}"{{end}}>{{if .Tone}}<i class="dot {{.Tone}}" aria-hidden="true"></i>{{end}}{{if .Href}}<a href="{{.Href}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}{{if .Meter}}<div class="meter {{meterClass .Meter}}"><i style="width:{{meterValue .Meter}}%"></i></div>{{end}}</td>{{end}}</tr>
+{{range .Rows}}<tr>{{range .}}<td class="{{if .Right}}r{{end}}{{if .Mono}} mono{{end}}{{if or .NoWrap .Tone}} nowrap{{end}}"{{if .Title}} title="{{.Title}}"{{end}}>{{if .Tone}}<i class="dot {{.Tone}}" aria-hidden="true"></i>{{end}}{{if .Href}}<a href="{{.Href}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}{{if .Meter}}<div class="meter {{meterClass .Meter}}"><i style="width:{{meterValue .Meter}}%"></i></div>{{end}}</td>{{end}}</tr>
 {{end}}</tbody>
 </table></div>{{else}}<p class="empty">{{.Empty}}</p>{{end}}{{end}}
 
